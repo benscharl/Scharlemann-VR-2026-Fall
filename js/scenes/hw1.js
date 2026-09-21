@@ -1,6 +1,7 @@
 import { ControllerBeam } from "../render/core/controllerInput.js";
 
 let NUMBER_OF_MARKS = 40;
+const NOTCH = 2*Math.PI / NUMBER_OF_MARKS;
 
 export const init = async model => {
    let beamL = new ControllerBeam(model, 'left');
@@ -27,7 +28,7 @@ export const init = async model => {
     }
     let plate = dial_hub.add('square').move(0, 0, .0155).scale(.08, .08, 1).opacity(0);
 
-    let angle = 0, prevA = 0;
+    let angle = 0, prevA = 0, prevN = 0;
     let grabbing = false, on_plate = false;
 
     inputEvents.onPress = hand => {
@@ -59,5 +60,11 @@ export const init = async model => {
         prevA = a;
 
         face.identity().turnZ(angle);
+
+        let n = Math.round(angle/NOTCH);
+        if (n != prevN) {
+            vibrate('right', 1, 20);
+            prevN = n;
+        }
     });
 }
