@@ -27,26 +27,36 @@ export const init = async model => {
     }
     let plate = dial_hub.add('square').move(0, 0, .0155).scale(.08, .08, 1).opacity(0);
 
-    let angle = 0, prevA = 0, hit_previous_frame = false;
+    let angle = 0, prevA = 0;
+    let grabbing = false, on_plate = false;
+
+    inputEvents.onPress = hand => {
+        if (hand == 'right' && on_plate) grabbing = true;
+    }
+    inputEvents.onRelease = hand => {
+        if (hand == 'right') grabbing = false;
+    }
+
     model.animate(() => {
         beamR.update();
         let uvd = beamR.hitRect(plate.getGlobalMatrix());
-        let hit_this_frame = false;
+        on_plate = false;
+        let a = prevA;
+
         if (uvd) {
             let u = uvd[0], v = uvd[1];
             if (u*u + v*v > .04) {
-                hit_this_frame = true;
-                let a = Math.atan2(v, u);
-                if(hit_previous_frame) {
-                    let d = a - prevA;
-                    if (d > Math.PI) d -= 2*Math.PI;
-                    if (d < -Math.PI) d += 2*Math.PI;
-                    angle += d;
-                }
-                prevA = a;
+                on_plate = true;
+                a = Math.atan2(v, u);
             }
         }
-        hit_previous_frame = hit_this_frame;
+        if(grabbing && on_plate) {
+            let delta = a - prevA;
+            if (delta > Math.PI) d -= 2*Math.PI;
+            if (delta < -Math.PI) d += 2*Math.PI;
+            angle += delta;
+                }
+        prevA = a;
 
         face.identity().turnZ(angle);
     });
