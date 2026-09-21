@@ -12,6 +12,7 @@ export default () => {
             { name: "linefont" , path: "./linefont.js" , public: true },
             { name: "linefont2", path: "./linefont2.js", public: true },
             { name: "buddha"   , path: "./buddha.js"   , public: true },
+            { name: "dial"     , path: "./hw1.js"      , public: true },
       ]
    };
 }
