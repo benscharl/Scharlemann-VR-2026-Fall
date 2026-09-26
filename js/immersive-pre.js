@@ -539,7 +539,49 @@ function initGL() {
 let isXRMode = false;
 window.isXR = () => isXRMode;
 
+// The Immersive Web Emulator 2.0 treats the inline session, which draws the
+// scene on the page, as if we had entered XR: it moves the canvas into its own
+// fullscreen view (covering the menu), and allows no other session while the
+// inline one is open. So the page takes the canvas back and hides that view,
+// and entering XR shows it again and ends the inline session.
+let emulatorView = null;
+let emulatorViewDisplay = "";
+
+function takeCanvasBackFromEmulator() {
+    let view = gl.canvas.parentElement;
+    if (! view || view == document.body)
+        return;
+    emulatorView = view;
+    emulatorViewDisplay = view.style.display;
+    view.style.display = "none";
+    gl.canvas.style.zIndex = "";
+    document.body.appendChild(gl.canvas);
+    window.dispatchEvent(new Event("resize"));
+}
+
+// The emulator's getOffsetReferenceSpace() also stores the XRRigidTransform
+// where it expects the transform's matrix, so every offset space comes out as
+// NaN and the camera ignores the offsets set by InlineViewerHelper and
+// InputController. While that bug is there, hand it the matrix instead.
+function fixEmulatorOffsetSpaces(refSpace) {
+    let proto = Object.getPrototypeOf(refSpace);
+    let getOffsetReferenceSpace = proto.getOffsetReferenceSpace;
+    let test = getOffsetReferenceSpace.call(refSpace, new XRRigidTransform());
+    let isBroken = Object.getOwnPropertySymbols(test).some(key =>
+        test[key] && test[key].offsetMatrix && isNaN(test[key].offsetMatrix[0]));
+    if (isBroken)
+        proto.getOffsetReferenceSpace = function (transform) {
+            return getOffsetReferenceSpace.call(this, transform.matrix);
+        };
+}
+
 function onRequestSession() {
+    // With the emulator, end the inline session first, then request again.
+    // The page stops rendering until it is reloaded.
+    if (emulatorView && emulatorView.style.display == "none") {
+        emulatorView.style.display = emulatorViewDisplay;
+        return xrSession.end().then(onRequestSession);
+    }
     return navigator.xr
         .requestSession("immersive-ar", {
             requiredFeatures: ["local-floor"],
@@ -606,6 +648,9 @@ async function onSessionStarted(session) {
     } catch (error) {
         window.isLayersSuported = false;
     }
+    // The emulator shows its view and controls only for a baseLayer.
+    if (emulatorView)
+        window.isLayersSuported = false;
     console.log("layers supported: " + window.isLayersSuported);
 
     let glLayer = new XRWebGLLayer(session, gl);
@@ -619,7 +664,9 @@ async function onSessionStarted(session) {
     else
         session.updateRenderState({
             baseLayer: glLayer,
-         //   inlineVerticalFieldOfView: .24
+            // Browsers default this to 90° for inline sessions, but the
+            // emulator leaves it unset, and then the page renders nothing.
+            inlineVerticalFieldOfView: session.isImmersive ? undefined : Math.PI / 2,
         });
 
     let refSpaceType = session.isImmersive ? "bounded-floor" : "viewer";
@@ -627,6 +674,7 @@ async function onSessionStarted(session) {
     window.insXZ = null;
     window.insS = null;
     let onRequestRefSpace = (refSpace)=>{
+        fixEmulatorOffsetSpaces(refSpace);
         if (session.isImmersive) {
             inputController = new InputController(refSpace);
             xrImmersiveRefSpace = inputController.referenceSpace;
@@ -1043,6 +1091,8 @@ function onXRFrame(t, frame) {
 
     time = t / 1000;
     let session = frame.session;
+    if (! session.isImmersive)
+        takeCanvasBackFromEmulator();
     let refSpace = session.isImmersive
         ? inputController.referenceSpace
         : inlineViewerHelper.referenceSpace;
