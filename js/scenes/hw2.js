@@ -53,8 +53,8 @@ export const init = async model => {
         }
         if(grabbing && on_plate) {
             let delta = a - prevA;
-            if (delta > Math.PI) d -= 2*Math.PI;
-            if (delta < -Math.PI) d += 2*Math.PI;
+            if (delta > Math.PI) delta -= 2*Math.PI;
+            if (delta < -Math.PI) delta += 2*Math.PI;
             angle += delta;
                 }
         prevA = a;
