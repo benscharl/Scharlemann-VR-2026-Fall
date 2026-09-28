@@ -6,14 +6,13 @@ const NUMBER_OF_MARKS = 40;
 const NOTCH       = 2 * Math.PI / NUMBER_OF_MARKS;
 const TIME_LIMIT = 90;
 const PENALTY = 5;
-const REVERSE_MIN = 2;
 const MIN_GAP = 5;
 
 const HAPTIC_MIN = .05;
 const HAPTIC_MAX = .7;
+const A_BUTTON    = 4;
 
-const RIGHT = -1, LEFT = 1;
-const REQUIRED_DIR = [RIGHT, LEFT, RIGHT];
+const ORDINAL = ['1st', '2nd', '3rd'];
 
 const STATUS = [
    'Turn RIGHT to the 1st number, then turn back LEFT',
@@ -28,10 +27,7 @@ Open the safe within ${TIME_LIMIT} seconds.
 
 Aim to the RIGHT controller at the dial,
 hold the tirgger and move to turn it.
-
-1st number: turn RIGHT, then reverse
-2nd number: turn LEFT, then reverse
-3rd number: turn RIGHT and hold still
+Press A to lock in a number.
 
 The clicks get stronger near the right number.
 A double pulse means that your are right on it.
@@ -39,10 +35,39 @@ A double pulse means that your are right on it.
 A wrong number costs ${PENALTY} seconds and
 you start over with the first number. 
 
-The screen will tell you though if you were
-too HIGH or too LOW.
-
 Press A to start.`;
+
+const PLAYING_TEXT = `\
+CRACK THE SAFE
+
+Turn the dial, press A to lock the number in.
+
+Stronger clicks = closer.
+Double click = right number.
+Wrong number = -${PENALTY} s, start over.
+`;
+
+const WON_TEXT = `\
+YOU WON!
+
+You cracked the safe with
+${fmtTime(frozenTime)} left on the clock.
+Final score: ${finalScore}
+
+Press A to play again.
+`;
+
+const LOST_TEXT = `\
+YOU LOST!
+
+Your time ran out.
+The combination was ${combo.join(' - ')}.
+YOu had found ${bestStep} of 3 numbers.
+
+Final scoe: 0
+
+Press A to play again.
+`;
 
 const textCache = {};
 const setText = (name, str) => {
@@ -56,6 +81,11 @@ const setText = (name, str) => {
 const now = () => Date.now() / 1000;
 const mod = (a, n) => ((a % n) + n) % n;
 const circDist = (a, b) => Math.min(mod(a - b, NUMBER_OF_MARKS), mod(b - a, NUMBER_OF_MARKS));
+const fmtTime = s => {
+   s = Math.max(0, Math.ceil(s));
+   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+};
+const isAPressed = () => !!clientState.button(clientID, 'right', A_BUTTON);
 
 export const init = async model => {
    let beamR = new ControllerBeam(model, 'right');
@@ -123,9 +153,11 @@ export const init = async model => {
    model.add('hudText').move(.35, 1.15, .05).turnY(-.35).color(.6, .9, 1);
 
    let state = 'intro';
-   let combo, penalty, startTime;
+   let combo, step, bestStep, penalty, startTime, frozenTime, finalScore, won;
    let angle, prevA, prevN;
    let grabbing = false, on_plate = false;
+
+   let lastFrame = now();
 
    const newCombination = () => {
       let c = [], prev = 0;
@@ -140,6 +172,7 @@ export const init = async model => {
 
    const resetGame = () => {
       combo = newCombination();
+      step = 0; 
       grabbing = false;
    }
 
@@ -151,13 +184,62 @@ export const init = async model => {
 
    const timeLeft = () => TIME_LIMIT - (now() - startTime) - penalty;
 
+   const submitNumber = number => {
+      if (number == combo[step]) {
+         vibrate('right', 1, 80);
+         step++;
+         bestStep = Math.max(bestStep, step);
+         if (step == 3) {
+            frozenTime = timeLeft();
+            finalScore = Math.max(0, Math.ceil(frozenTime)) * 10;
+            grabbing = false;
+            state = 'opening';
+         }
+         else {
+            penalty += PENALTY;
+            step = 0;
+            vibrate('right', 1, 60);
+            setTimeout(() => vibrate('right', 1, 60), 150);
+         }
+      }
+   }
+
+   const clickFeedback = number => {
+      if (state != 'playing' || step >= 3)  {
+         vibrate('right', .5, 20);
+         return;
+      }
+
+      let d = circDist(number, combo[step]);
+      if (d == 0) {
+         vibrate('right', 1, 40);
+         setTimeout(() => vibrate('right', 1, 40), 90);
+         return;
+      }
+
+      let closeness = 1 - d / (NUMBER_OF_MARKS / 2);
+      vibrate('right', HAPTIC_MIN + (HAPTIC_MAX - HAPTIC_MIN) * closeness * closeness, 20);
+   }
+
 
 
    inputEvents.onPress = hand => {
-      if (hand == 'right' && on_plate) grabbing = true;
-   }
+      if (hand == 'right' && on_plate && state == 'playing') grabbing = true;
+      if (hand == 'right' && (state == 'intro' || state == 'gameover')) startGame();
+   };
+
    inputEvents.onRelease = hand => {
       if (hand == 'right') grabbing = false;
+   }
+
+   const mainText = () => {
+      switch (state) {
+         case 'intro': return INTRO_TEXT;
+         case 'playing': return PLAYING_TEXT;
+         case 'opening': return 'The safe is opening..';
+      }
+      if (won) return `
+      `;
    }
 
    model.animate(() => {
