@@ -13,6 +13,7 @@ export default () => {
             { name: "linefont2", path: "./linefont2.js", public: true },
             { name: "buddha"   , path: "./buddha.js"   , public: true },
             { name: "dial"     , path: "./hw1.js"      , public: true },
+            { name: "safecracker"     , path: "./hw2.js"      , public: true },
       ]
    };
 }
