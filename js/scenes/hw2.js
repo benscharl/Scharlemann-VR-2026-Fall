@@ -1,4 +1,6 @@
 import { ControllerBeam } from "../render/core/controllerInput.js";
+import * as cg from "../render/core/cg.js";
+import { Structure } from "../render/core/structure.js"; 
 
 const NUMBER_OF_MARKS = 40;
 const NOTCH       = 2 * Math.PI / NUMBER_OF_MARKS;
@@ -51,6 +53,9 @@ const setText = (name, str) => {
    }
 };
 
+const now = () => Date.now() / 1000;
+const mod = (a, n) => ((a % n) + n) % n;
+const circDist = (a, b) => Math.min(mod(a - b, NUMBER_OF_MARKS), mod(b - a, NUMBER_OF_MARKS));
 
 export const init = async model => {
    let beamR = new ControllerBeam(model, 'right');
@@ -65,12 +70,13 @@ export const init = async model => {
    safe.add('cube').move(   0, -.40, -.18).scale(.08, .03, .05).color(1, .8, .1);
    safe.add('cube').move(-.03, -.34, -.18).scale(.08, .03, .05).color(1, .8, .1);
 
-   let hinge = model.add();
+   let hinge = model.add().move(-.25, 1.3, .02);
    let door = hinge.add().move(.25, 0, 0);
    door.add('cube').scale(.25, .45, .02).color(.45, .45, .5);
 
    let dial_hub = door.add().move(0, .1, .02);
    let face = dial_hub.add();
+   let faceDisk = face.add('tubeZ').scale(.08, .08, .015).color(.3, .3, .35);
 
    dial_hub.add('coneY')
       .move(0, .095, .016)
@@ -103,45 +109,86 @@ export const init = async model => {
 
    let plate = dial_hub.add('square').move(0, 0, .0155).scale(.08, .08, 1).opacity(0);
 
-    let angle = 0, prevA = 0, prevN = 0;
-    let grabbing = false, on_plate = false;
+   //numbers above the dial
+   let screen = door.add().move(0, .29, .02);
+   screen.add('cube').scale(.075, .055, .005).color(.03, .05, .03);
+   setText('numText', '00');
+   screen.add('numText').move(-.03, -.005, .006).scale(2, 2, 2).color(.2, 1, .3);
+   setText('fbText', ' ');
+   screen.add('fbText').move(-.07, -.04, .006).scale(.6, .6, .6).color(.9, .9, .5);
 
-    inputEvents.onPress = hand => {
-        if (hand == 'right' && on_plate) grabbing = true;
-    }
-    inputEvents.onRelease = hand => {
-        if (hand == 'right') grabbing = false;
-    }
+   setText('mainText', INTRO_TEXT);
+   model.add('mainText').move(.35, 1.8, .05).turnY(-.35).color(1, 1, 1);
+   setText('hudText', ' ');
+   model.add('hudText').move(.35, 1.15, .05).turnY(-.35).color(.6, .9, 1);
 
-    model.animate(() => {
-        beamR.update();
-        let uvd = beamR.hitRect(plate.getGlobalMatrix());
-        on_plate = false;
-        let a = prevA;
+   let state = 'intro';
+   let combo, penalty, startTime;
+   let angle, prevA, prevN;
+   let grabbing = false, on_plate = false;
 
-        if (uvd) {
-            let u = uvd[0], v = uvd[1];
-            if (u*u + v*v > .04) {
-                on_plate = true;
-                a = Math.atan2(v, u);
-            }
-        }
-        if(grabbing && on_plate) {
-            let delta = a - prevA;
-            if (delta > Math.PI) delta -= 2*Math.PI;
-            if (delta < -Math.PI) delta += 2*Math.PI;
-            angle += delta;
-                }
-        prevA = a;
+   const newCombination = () => {
+      let c = [], prev = 0;
+      while (c.length < 3) {
+         let x = Math.floor(Math.random() * NUMBER_OF_MARKS);
+         if (circDist(x,prev) >= MIN_GAP) {
+            c.push(x); prev = x;
+         }
+      }
+      return c;
+   }
 
-        face.identity().turnZ(angle);
+   const resetGame = () => {
+      combo = newCombination();
+      grabbing = false;
+   }
 
-        let n = Math.round(angle/NOTCH);
-        if (n != prevN) {
-            vibrate('right', 1, 20);
-            prevN = n;
-        }
-    });
+   const startGame = () => {
+      resetGame();
+      state = 'playing';
+      startTime = now();
+   }
+
+   const timeLeft = () => TIME_LIMIT - (now() - startTime) - penalty;
+
+
+
+   inputEvents.onPress = hand => {
+      if (hand == 'right' && on_plate) grabbing = true;
+   }
+   inputEvents.onRelease = hand => {
+      if (hand == 'right') grabbing = false;
+   }
+
+   model.animate(() => {
+      beamR.update();
+      let uvd = beamR.hitRect(plate.getGlobalMatrix());
+      on_plate = false;
+      let a = prevA;
+
+      if (uvd) {
+         let u = uvd[0], v = uvd[1];
+         if (u*u + v*v > .04) {
+               on_plate = true;
+               a = Math.atan2(v, u);
+         }
+      }
+      if(grabbing && on_plate) {
+         let delta = a - prevA;
+         if (delta > Math.PI) delta -= 2*Math.PI;
+         if (delta < -Math.PI) delta += 2*Math.PI;
+         angle += delta;
+               }
+      prevA = a;
+
+      face.identity().turnZ(angle);
+
+      let n = Math.round(angle/NOTCH);
+      if (n != prevN) {
+         //vibrate('right', 1, 20);
+         prevN = n;
+      }
+   });
 
 
 
