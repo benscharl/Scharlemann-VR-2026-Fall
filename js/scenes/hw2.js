@@ -25,12 +25,12 @@ CRACK THE SAFE
 
 Open the safe within ${TIME_LIMIT} seconds.
 
-Aim to the RIGHT controller at the dial,
-hold the tirgger and move to turn it.
+Aim the RIGHT controller at the dial,
+hold the trigger and move to turn it.
 Press A to lock in a number.
 
 The clicks get stronger near the right number.
-A double pulse means that your are right on it.
+A double pulse means that you are right on it.
 
 A wrong number costs ${PENALTY} seconds and
 you start over with the first number. 
@@ -47,27 +47,6 @@ Double click = right number.
 Wrong number = -${PENALTY} s, start over.
 `;
 
-const WON_TEXT = `\
-YOU WON!
-
-You cracked the safe with
-${fmtTime(frozenTime)} left on the clock.
-Final score: ${finalScore}
-
-Press A to play again.
-`;
-
-const LOST_TEXT = `\
-YOU LOST!
-
-Your time ran out.
-The combination was ${combo.join(' - ')}.
-YOu had found ${bestStep} of 3 numbers.
-
-Final scoe: 0
-
-Press A to play again.
-`;
 
 const textCache = {};
 const setText = (name, str) => {
@@ -155,7 +134,8 @@ export const init = async model => {
    let state = 'intro';
    let combo, step, bestStep, penalty, startTime, frozenTime, finalScore, won;
    let angle, prevA, prevN;
-   let grabbing = false, on_plate = false;
+   let grabbing = false, on_plate = false, wasAPressed = false;
+   let flashUntil, doorAngle;
 
    let lastFrame = now();
 
@@ -172,7 +152,10 @@ export const init = async model => {
 
    const resetGame = () => {
       combo = newCombination();
-      step = 0; 
+      step = 0; bestStep = 0; penalty = 0;
+      finalScore = 0; frozenTime = TIME_LIMIT; won = false;
+      angle = 0; prevA = 0; prevN = 0;
+      flashUntil = 0; doorAngle = 0;
       grabbing = false;
    }
 
@@ -195,12 +178,13 @@ export const init = async model => {
             grabbing = false;
             state = 'opening';
          }
-         else {
-            penalty += PENALTY;
-            step = 0;
-            vibrate('right', 1, 60);
-            setTimeout(() => vibrate('right', 1, 60), 150);
-         }
+      }
+      else {
+         penalty += PENALTY;
+         step = 0;
+         flashUntil = now() + .4;
+         vibrate('right', 1, 60);
+         setTimeout(() => vibrate('right', 1, 60), 150);
       }
    }
 
@@ -232,17 +216,56 @@ export const init = async model => {
       if (hand == 'right') grabbing = false;
    }
 
+   const wonText = () => `\
+   YOU WON!
+
+   You cracked the safe with
+   ${fmtTime(frozenTime)} left on the clock.
+   Final score: ${finalScore}
+
+   Press A to play again.
+   `;
+
+      const lostText = () => `\
+   YOU LOST!
+
+   Your time ran out.
+   The combination was ${combo.join(' - ')}.
+   You found ${bestStep} of 3 numbers.
+
+   Final score: 0
+
+   Press A to play again.
+   `;
+
    const mainText = () => {
       switch (state) {
          case 'intro': return INTRO_TEXT;
          case 'playing': return PLAYING_TEXT;
          case 'opening': return 'The safe is opening..';
       }
-      if (won) return `
-      `;
-   }
+      if (won) return wonText();
+      else return lostText();
+      }
+   const hudText = () => {
+      if (state == 'intro')
+         return `Time limit: ${fmtTime(TIME_LIMIT)}\n\nPress A to start.`;
+      let t = state == 'playing' ? timeLeft() : frozenTime;
+      let score = state == 'playing' ? Math.max(0, Math.ceil(t)) * 10 : finalScore;
+      let status = state == 'playing'
+                 ? `Find the ${ORDINAL[step]} number\nand press A.`
+                 : (won ? 'Safe open!' : 'Game over');
+      return `Time:  ${fmtTime(t)}\nScore: ${score}\nFound: ${Math.min(step, 3)} of 3\n\n${status}`;
+   };
+
+
+   resetGame();
 
    model.animate(() => {
+      let t = now();
+      let dt = Math.min(t - lastFrame, .1);
+      lastFrame = t;
+
       beamR.update();
       let uvd = beamR.hitRect(plate.getGlobalMatrix());
       on_plate = false;
@@ -255,7 +278,7 @@ export const init = async model => {
                a = Math.atan2(v, u);
          }
       }
-      if(grabbing && on_plate) {
+      if(state == 'playing' && grabbing && on_plate) {
          let delta = a - prevA;
          if (delta > Math.PI) delta -= 2*Math.PI;
          if (delta < -Math.PI) delta += 2*Math.PI;
@@ -264,12 +287,47 @@ export const init = async model => {
       prevA = a;
 
       face.identity().turnZ(angle);
+      
+      let n = Math.round(angle / NOTCH);
+      let number = mod(n, NUMBER_OF_MARKS);
 
-      let n = Math.round(angle/NOTCH);
-      if (n != prevN) {
-         //vibrate('right', 1, 20);
-         prevN = n;
+      if (n != prevN) clickFeedback(number);
+      prevN = n;
+
+      let aPressed = isAPressed();
+      if (aPressed && !wasAPressed)  {
+         if (state == 'playing') {
+            submitNumber(number);
+         }
+         else if (state == 'intro' || state == 'gameover') {
+            startGame();
+         }
+         
       }
+      wasAPressed = aPressed;
+
+      if (state == 'playing' && timeLeft() <= 0 ) {
+         frozenTime = 0;
+         won = false;
+         grabbing = false;
+         state = 'gameover';
+      }
+
+      if (state == 'opening') {
+         doorAngle += Math.sign(-1.6) * dt;
+         if (Math.abs(doorAngle) >= Math.abs(-1.6)) {
+            doorAngle = -1.6;
+            won = true;
+            state = 'gameover';
+         }
+      }
+      hinge.identity().move(-.25, 1.3, .02).turnY(doorAngle);
+      if (t < flashUntil) faceDisk.color(.7, .1, .1);
+      else                faceDisk.color(.3, .3, .35);
+
+      setText('numText', String(number).padStart(2, '0'));
+      setText('mainText', mainText());
+      setText('hudText', hudText());
    });
 
 
