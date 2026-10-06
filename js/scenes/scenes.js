@@ -13,6 +13,7 @@ export default () => {
             { name: "buddha"    , path: "./buddha.js"    , public: true },
             { name: "beamSphere", path: "./beamSphere.js", public: true },
             { name: "construct" , path: "./construct.js" , public: true },
+            { name: "claimorbs" , path: "./hw3.js" , public: true },
       ]
    };
 }
