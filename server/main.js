@@ -488,7 +488,7 @@ app.route("/api/aiquery").post(function(req, res) {
       if (parallel_tool_calls !== undefined) requestBody.parallel_tool_calls = parallel_tool_calls;
       if (response_format) requestBody.response_format = response_format;
 
-      return fetch('https://api.openai.com/v1/chat/completions', {
+      return fetch((process.env.AI_BASE_URL || 'https://api.openai.com/v1') + '/chat/completions', {
          method: 'POST',
          headers: {
             'Content-Type': 'application/json',
