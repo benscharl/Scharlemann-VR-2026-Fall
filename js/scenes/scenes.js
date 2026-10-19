@@ -14,9 +14,9 @@ export default () => {
             { name: "beamSphere" , path: "./beamSphere.js" , public: true },
             { name: "construct"  , path: "./construct.js"  , public: true },
             { name: "aiquery"    , path: "./aiquery.js"    , public: true },
+            { name: "aiCity"     , path: "./hw5.js"     , public: true },
             { name: "SO101"      , path: "./SO101.js"      , public: true },
             { name: "SO101_parts", path: "./SO101_parts.js", public: true },
-            { name: "hw4"        , path: "./hw4.js"        , public: true },
       ]
    };
 }
