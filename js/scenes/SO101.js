@@ -1,6 +1,7 @@
 import * as cg from '../render/core/cg.js';
 import { stl } from '../render/core/stl.js';
 import { buttonState } from '../render/core/controllerInput.js';
+import { G2 } from '../util/g2.js';
 
 // DIGITAL DOUBLE OF AN SO101 EDUCATIONAL ROBOT ARM
 
@@ -25,11 +26,11 @@ const GHOST_COLOR = [.4, .8, 1];
 const GHOST_OPACITY = .35;
 const MAX_SPEED = 1;
 
-const poses = [                     // EXAMPLE TARGET POSES
-   [0, 0, 0, 0, 0, 0],
-   [.6, -.4, .5, .6, 0, .8],
-   [-.6, -.6, .9, .4, .5, 0],
-];
+const PANEL_SIZE = .05;
+const PANEL_RIGHT = .12;
+const PANEL_UP = [-.05, .02, 0, .05, 0, -.05];
+const UI_COLOR = '#4dccff';
+const jointNames = ['shoulder pan', 'shoulder lift', 'elbow', 'wrist flex', 'wrist roll', 'gripper'];
 
 export const init = async model => {
    const printed = [1, .82, .12], motor = [.1, .1, .1];     // COLOR PALETTE FOR THE ROBOT PARTS
@@ -81,9 +82,14 @@ export const init = async model => {
       { name: 'gripper_frame', parent: 'wrist_roll', xyz: [-0.0079, -0.000218121, -0.0981274], rpy: [0, 3.14159, 0], fixed: true, link: 'gripper_frame_link' },
    ];
 
-   for (const meshList of Object.values(links))         // START LOADING THE ROBOT PARTS
-      for (let mesh of meshList)
-         stl('SO101/' + mesh.stl);
+   const MESH_DIR = 'SO101_lo/', GHOST_DIR = 'SO101_ghost/';
+
+   for (const [link, meshList] of Object.entries(links))        // START LOADING THE ROBOT PARTS
+      for (let mesh of meshList) {
+         stl(MESH_DIR + mesh.stl);
+         if (link != 'base_link')
+            stl(GHOST_DIR + mesh.stl);
+      }
 
    let robotBaseFrame = model.add().move(-.1, 1.5, 0).turnX(-Math.PI / 2);
 
@@ -146,7 +152,39 @@ export const init = async model => {
    let current = [0, 0, 0, 0, 0, 0];
    let target = [0, 0, 0, 0, 0, 0];
    let move = null;
-   let poseIndex = 0, wasNext = false, wasGo = false;
+
+   let startMove = () => {
+      let farthest = Math.max(...target.map((t, i) => Math.abs(t - current[i])));
+      move = { from: current.slice(), start: model.time, duration: Math.max(farthest / MAX_SPEED, .3) };
+   }
+
+   let beside = (p, eye, right, up) => {
+      let X = cg.normalize(cg.cross([0, 1, 0], cg.subtract(eye, p)));
+      return { pos: cg.add(p, cg.add(cg.scale(X, right), [0, up, 0])), X };
+   }
+
+   let toSlider = (i, q) => (q - joints[i].lo) / (joints[i].hi - joints[i].lo);
+   let fromSlider = (i, v) => joints[i].lo + v * (joints[i].hi - joints[i].lo);
+
+   let sliders = [];
+   for (let i = 0; i < 6; i++) {
+      let g2 = new G2();
+      model.txtrSrc(1 + i, g2.getCanvas());
+      let panel = model.add('square').txtr(1 + i);
+      let leader = model.add('tubeZ').color(DIAL_COLOR);
+      g2.render = function () {
+         this.setColor(UI_COLOR).textHeight(.12);
+         this.text(jointNames[i] + '  ' + Math.round(target[i] * 180 / Math.PI) + ' deg', 0, .3, 'center');
+      }
+      let slider = g2.addWidget(panel, 'slider', 0, 0, UI_COLOR, '', v => target[i] = fromSlider(i, v), 3.6);
+      sliders.push({ g2, panel, leader, slider });
+   }
+
+   let g2Go = new G2();
+   model.txtrSrc(7, g2Go.getCanvas());
+   let goPanel = model.add('square').txtr(7);
+   g2Go.addWidget(goPanel, 'button', -.5, 0, '#80ff80', ['go'], startMove, 3);
+   g2Go.addWidget(goPanel, 'button', .45, 0, '#ff8080', ['cancel'], () => target = current.slice(), 3);
 
    let poseNodes = (nodes, angles) => {
       let i = 0;
@@ -163,7 +201,7 @@ export const init = async model => {
 
    model.animate(() => {
       for (let mesh of links['base_link']) {             // CREATE THE ROBOT BASE
-         let partName = 'SO101/' + mesh.stl;
+         let partName = MESH_DIR + mesh.stl;
          if (clay.formMesh(partName) && !mesh.part)
             mesh.part = node['robotBaseFrame'].add(partName).move(mesh.xyz)
                .turnZ(mesh.rpy[2])
@@ -174,7 +212,7 @@ export const init = async model => {
 
       for (let j of joints)                              // CREATE THE ALL THE OTHER ROBOT PARTS
          for (let mesh of links[j.link]) {
-            let partName = 'SO101/' + mesh.stl;
+            let partName = MESH_DIR + mesh.stl;
             if (clay.formMesh(partName) && !mesh.part)
                mesh.part = node[j.name].add(partName).move(mesh.xyz)
                   .turnZ(mesh.rpy[2])
@@ -246,7 +284,7 @@ export const init = async model => {
 
       for (let j of joints)
          for (let mesh of links[j.link]) {
-            let partName = 'SO101/' + mesh.stl;
+            let partName = GHOST_DIR + mesh.stl;
             if (clay.formMesh(partName) && !mesh.ghost)
                mesh.ghost = ghost[j.name].add(partName).move(mesh.xyz)
                   .turnZ(mesh.rpy[2])
@@ -255,17 +293,23 @@ export const init = async model => {
                   .color(GHOST_COLOR);
          }
 
-      let next = buttonState.right[0].pressed;
-      if (next && !wasNext && !move)
-         target = poses[poseIndex = (poseIndex + 1) % poses.length].slice();
-      wasNext = next;
+      let showSliders = !move;
+      for (let i = 0; i < 6; i++) {
+         let s = sliders[i];
+         let joint = cg.mTransform(toModel, gauges[i].frame.getGlobalPos());
+         let { pos, X } = beside(joint, eye, PANEL_RIGHT, PANEL_UP[i]);
 
-      let go = buttonState.left[0].pressed;
-      if (go && !wasGo && !move) {
-         let farthest = Math.max(...target.map((t, i) => Math.abs(t - current[i])));
-         move = { from: current.slice(), start: model.time, duration: Math.max(farthest / MAX_SPEED, .3) };
+         s.panel.identity().move(pos).faceViewer().scale(PANEL_SIZE).opacity(showSliders ? 1 : 0);
+         s.leader.identity().link(joint, cg.subtract(pos, cg.scale(X, .9 * PANEL_SIZE)), .0006)
+            .opacity(showSliders ? 1 : 0);
+
+         if (showSliders) {
+            s.g2.update();
+            let dragging = s.g2.isActiveWidget() && ['press', 'drag'].includes(s.g2.mouseState());
+            if (!dragging)
+               s.slider.setValue(toSlider(i, target[i]));
+         }
       }
-      wasGo = go;
 
       if (move) {
          let u = Math.min(1, (model.time - move.start) / move.duration);
@@ -278,5 +322,12 @@ export const init = async model => {
       poseNodes(ghost, target);
       let differs = target.some((t, i) => Math.abs(t - current[i]) > .01);
       ghost.robotBaseFrame.opacity(differs ? GHOST_OPACITY : 0);
+
+      let showGo = differs && !move;
+      let ghostTip = cg.mTransform(toModel, ghost['gripper_frame'].getGlobalPos());
+      goPanel.identity().move(beside(ghostTip, eye, .08, .03).pos).faceViewer()
+         .scale(.04).opacity(showGo ? 1 : 0);
+      if (showGo)
+         g2Go.update();
    });
 }
